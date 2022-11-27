@@ -9,7 +9,7 @@
 // htons..
 #include <arpa/inet.h>
 // pour close
-#include <unistd.h>
+#include <unistd.h> 
 // https://www.educative.io/answers/how-to-implement-udp-sockets-in-c
 // pour le wait 
 #include<sys/wait.h>
@@ -71,8 +71,6 @@ int main(int argc, char* argv[])
 
         if(strncmp("ACK", client_message, 3) == 0)
         {
-            printf("reception du ACK :) /n");
-
             // Creation socket UDP directe avec le client:
             int Sous_socket = Creation_Socket (nvx_port, ss_addr);
             num_client += 1; 
@@ -97,6 +95,7 @@ int main(int argc, char* argv[])
             }
             memset(server_message, '\0', BUFFSIZE);
             int num_seq = 0;
+            int nbr_pkt_envoye_pas_ack = 0;
             char char_num_seq[6]; 
             char lecture[BUFFSIZE-6];
             /* RTT provisoire */
@@ -111,10 +110,7 @@ int main(int argc, char* argv[])
             int nready;
 
             while ( 1 ) { 
-                if (num_seq == last_Ack_Recu) {
-                    break;
-                }
-                while (cwnd_taille != 0){
+                while ( (cwnd_taille - nbr_pkt_envoye_pas_ack ) != 0){
                     if (! feof(fp)) {
                         num_seq += 1;
                         memset(server_message, '\0', BUFFSIZE);
@@ -127,7 +123,7 @@ int main(int argc, char* argv[])
                         sendto(Sous_socket, server_message, BUFFSIZE, 0,
                             (struct sockaddr*)&client_addr, client_struct_length) ;
                         printf("message envoyé n° %d !\n", num_seq);
-                        cwnd_taille -- ; 
+                        nbr_pkt_envoye_pas_ack ++ ; 
                     }
 
                     FD_SET(Sous_socket, &rset);
@@ -146,11 +142,24 @@ int main(int argc, char* argv[])
                         ACK_num_seq(client_message);
                         strcpy(buffer_last_Ack_Recu,client_message);
                         last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 ); //atoi
-                        cwnd_taille ++ ;
+                        nbr_pkt_envoye_pas_ack -- ;
+                        cwnd_taille ++;
+                        // if (cwnd_taille < seuil)
+                        // {
+                        //     //slow start
+                        //     cwnd_taille ++;
+                        // }  else {
+                        //     //congestion avoidance
+                        //     cwnd_taille ++;
+                        // }
+
                     }
                     if (num_seq == last_Ack_Recu) {
                         break;
                     }
+                }
+                if (num_seq == last_Ack_Recu) {
+                    break;
                 }
                 // On a envoyé tous les messages possibles en fonction de la taille de notre fenêtre 
                 tv.tv_sec = 2;
@@ -169,9 +178,11 @@ int main(int argc, char* argv[])
                     ACK_num_seq(client_message);
                     strcpy(buffer_last_Ack_Recu,client_message);
                     last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 );
-                    cwnd_taille ++ ;
+                    nbr_pkt_envoye_pas_ack -- ;
+                    cwnd_taille ++;
                 } else {
                     // Paquets perdus => Retransmission 
+                    printf("paquets perdus..\n");
                     fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
                     fread(lecture, 1, BUFFSIZE-6, fp);
                     fflush(fp);
@@ -179,6 +190,7 @@ int main(int argc, char* argv[])
 
                     sendto(Sous_socket, server_message, BUFFSIZE, 0,
                         (struct sockaddr*)&client_addr, client_struct_length) ;
+                    cwnd_taille = cwnd_taille / 2;
                     // num_seq += 1; // A modifier avec les ACK cumulatif 
                 } 
             }
@@ -226,7 +238,7 @@ int Creation_Socket (int port, struct sockaddr_in server_addr)
     // Fixe port & IP:
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    server_addr.sin_addr.s_addr = inet_addr("192.168.0.18");
     
     // Bind aux port & @IP:
     check(bind(descripteur_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)), 
