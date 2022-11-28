@@ -34,7 +34,6 @@ int main(int argc, char* argv[])
     }
 
     int PORT = atoi(argv[1]);
-    printf("PORT %d \n", PORT);
 
     int socket_desc, Sous_socket, num_client = 1;
     struct sockaddr_in server_addr, client_addr, ss_addr;
@@ -122,7 +121,7 @@ int main(int argc, char* argv[])
                         fflush(fp);
                         sprintf(server_message, "%s%s", char_num_seq, lecture);
 
-                        sendto(Sous_socket, server_message, BUFFSIZE, 0,
+                        sendto(Sous_socket, server_message, strlen(server_message), 0,
                             (struct sockaddr*)&client_addr, client_struct_length) ;
                         printf("message envoyé n° %d !\n", num_seq);
                         Flight_Size ++ ; 
