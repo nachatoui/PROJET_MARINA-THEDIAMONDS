@@ -14,7 +14,7 @@
 // pour le wait 
 #include<sys/wait.h>
 
-#define BUFFSIZE 500
+#define BUFFSIZE 1500 //MTU ou 1460 - A modifier lors optimisation
 #define SYN "SYN"
 #define ACK "ACK"
 #define SYN_ACK "SYN-ACK"
@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
     struct sockaddr_in server_addr, client_addr, ss_addr;
     char server_message[BUFFSIZE], client_message[BUFFSIZE];
     int client_struct_length = sizeof(client_addr);
-    int cwnd_taille = 10; 
+    int cwnd_taille = 10; // A modifier lors optimisation
     
     // Vide les buffers:
     memset(server_message, '\0', BUFFSIZE);
@@ -94,13 +94,11 @@ int main(int argc, char* argv[])
                 exit(-1);
             }
             memset(server_message, '\0', BUFFSIZE);
-            int num_seq = 0;
-            int nbr_pkt_envoye_pas_ack = 0;
             char char_num_seq[6]; 
             char lecture[BUFFSIZE-6];
-            /* RTT provisoire */
-            struct timeval tv;
-            struct timeval tv1;
+            
+            struct timeval RTT;
+            struct timeval tv;  
             
             char buffer_last_Ack_Recu[6];
             long last_Ack_Recu;
@@ -109,8 +107,12 @@ int main(int argc, char* argv[])
             FD_ZERO(&rset);
             int nready;
 
+            int num_seq = 0;
+            int Flight_Size = 0;
+            int SlowStartSeuil = 1024; // A modifier lors optimisation 
+
             while ( 1 ) { 
-                while ( (cwnd_taille - nbr_pkt_envoye_pas_ack ) != 0){
+                while ( (cwnd_taille - Flight_Size ) != 0){
                     if (! feof(fp)) {
                         num_seq += 1;
                         memset(server_message, '\0', BUFFSIZE);
@@ -123,13 +125,13 @@ int main(int argc, char* argv[])
                         sendto(Sous_socket, server_message, BUFFSIZE, 0,
                             (struct sockaddr*)&client_addr, client_struct_length) ;
                         printf("message envoyé n° %d !\n", num_seq);
-                        nbr_pkt_envoye_pas_ack ++ ; 
+                        Flight_Size ++ ; 
                     }
 
                     FD_SET(Sous_socket, &rset);
-                    tv1.tv_sec = 0;
-                    tv1.tv_usec = 0; 
-                    nready = select(Sous_socket+1, &rset, NULL, NULL, &tv1); // empeche de bloquer au receivefrom
+                    tv.tv_sec = 0;
+                    tv.tv_usec = 0; 
+                    nready = select(Sous_socket+1, &rset, NULL, NULL, &tv); // empeche de bloquer au receivefrom
                     if (FD_ISSET(Sous_socket, &rset)) { 
                         // On a un ACK qui est arrivé 
                         memset(client_message, '\0', BUFFSIZE);
@@ -142,16 +144,15 @@ int main(int argc, char* argv[])
                         ACK_num_seq(client_message);
                         strcpy(buffer_last_Ack_Recu,client_message);
                         last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 ); //atoi
-                        nbr_pkt_envoye_pas_ack -- ;
-                        cwnd_taille ++;
-                        // if (cwnd_taille < seuil)
-                        // {
-                        //     //slow start
-                        //     cwnd_taille ++;
-                        // }  else {
-                        //     //congestion avoidance
-                        //     cwnd_taille ++;
-                        // }
+                        Flight_Size -- ;
+                        if (cwnd_taille < SlowStartSeuil)
+                        {
+                            //slow start
+                            cwnd_taille ++;
+                        }  else {
+                            //congestion avoidance
+                            cwnd_taille = cwnd_taille + 1/cwnd_taille;
+                        }
 
                     }
                     if (num_seq == last_Ack_Recu) {
@@ -162,10 +163,11 @@ int main(int argc, char* argv[])
                     break;
                 }
                 // On a envoyé tous les messages possibles en fonction de la taille de notre fenêtre 
-                tv.tv_sec = 2;
-                tv.tv_usec = 0;
+                RTT.tv_sec = 2;
+                RTT.tv_usec = 0;
+                /* RTT provisoire */
                 FD_SET(Sous_socket, &rset);
-                nready = select(Sous_socket+1, &rset, NULL, NULL, &tv);
+                nready = select(Sous_socket+1, &rset, NULL, NULL, &RTT);
                 // On reste bloqué en attendant la fin du timeout afin de voir si le message pourra être ACK
                 if (FD_ISSET(Sous_socket, &rset)) { 
                     memset(client_message, '\0', BUFFSIZE);
@@ -178,8 +180,15 @@ int main(int argc, char* argv[])
                     ACK_num_seq(client_message);
                     strcpy(buffer_last_Ack_Recu,client_message);
                     last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 );
-                    nbr_pkt_envoye_pas_ack -- ;
-                    cwnd_taille ++;
+                    Flight_Size -- ;
+                    if (cwnd_taille < SlowStartSeuil)
+                    {
+                        //slow start
+                        cwnd_taille ++;
+                    }  else {
+                        //congestion avoidance
+                        cwnd_taille = cwnd_taille + 1/cwnd_taille;
+                    }
                 } else {
                     // Paquets perdus => Retransmission 
                     printf("paquets perdus..\n");
@@ -190,7 +199,9 @@ int main(int argc, char* argv[])
 
                     sendto(Sous_socket, server_message, BUFFSIZE, 0,
                         (struct sockaddr*)&client_addr, client_struct_length) ;
-                    cwnd_taille = cwnd_taille / 2;
+                    cwnd_taille = cwnd_taille / 2; //NewReno
+                    // A gérer si dès la première perte ? 
+                    SlowStartSeuil = Flight_Size / 2;
                     // num_seq += 1; // A modifier avec les ACK cumulatif 
                 } 
             }
