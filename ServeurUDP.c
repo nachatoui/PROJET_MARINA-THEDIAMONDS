@@ -13,17 +13,30 @@
 // https://www.educative.io/answers/how-to-implement-udp-sockets-in-c
 // pour le wait 
 #include<sys/wait.h>
+#include <sys/time.h>
 
 #define BUFFSIZE 1500 //MTU ou 1460 - A modifier lors optimisation
 #define SYN "SYN"
 #define ACK "ACK"
 #define SYN_ACK "SYN-ACK"
 #define FIN "FIN"
+#define ALPHA 0.4 //- A modifier lors optimisation -- si réseau stable, petite valeur de α = 0.4 sinon grande valeur α = 0.9 par exemple
+
+#define max(x, y) (((x) > (y)) ? (x) : (y))
+#define min(x, y) (((x) < (y)) ? (x) : (y))
 
 int check(int exp, const char *msg);
 char* Num_Sequence(int num_seq, char* char_num_seq);
 int Creation_Socket (int port, struct sockaddr_in server_addr);
 void ACK_num_seq(char *str);
+double differencetemps (struct timeval t0,struct timeval t1);
+int SRTT (int prev_SRTT, int prev_RTT);
+
+// creation d'un dictionnaire -- regarde pour chaque segement à quel temps il a été envoyé afin de calculer le rtt
+typedef struct {
+    int key_num_seq;
+    struct timeval value_temps_envoie; 
+} temps_send ;
 
 int main(int argc, char* argv[])
 {
@@ -52,7 +65,7 @@ int main(int argc, char* argv[])
     int nvx_port = PORT + num_client;
 
     char buffer_SYN_ACK[13];
-    memset(buffer_SYN_ACK, '\0', 13);    
+    memset(buffer_SYN_ACK, '\0', 13);     
 
     sprintf(buffer_SYN_ACK, "%s%d", SYN_ACK, nvx_port);
     printf("syn ack message : %s\n", buffer_SYN_ACK);
@@ -96,8 +109,8 @@ int main(int argc, char* argv[])
             char char_num_seq[6]; 
             char lecture[BUFFSIZE-6];
             
-            struct timeval RTT;
-            struct timeval tv;  
+            struct timeval RetransmissionTimeout;
+            struct timeval TimerNul;  
             
             char buffer_last_Ack_Recu[6];
             long last_Ack_Recu;
@@ -109,6 +122,11 @@ int main(int argc, char* argv[])
             int num_seq = 0;
             int Flight_Size = 0;
             int SlowStartSeuil = 1024; // A modifier lors optimisation 
+            int rtt; 
+            int srtt; 
+            struct timeval rtt_t0;
+            struct timeval rtt_t1;
+            temps_send tmp_envoie[300]; 
 
             while ( 1 ) { 
                 while ( (cwnd_taille - Flight_Size ) != 0){
@@ -123,14 +141,18 @@ int main(int argc, char* argv[])
 
                         sendto(Sous_socket, server_message, strlen(server_message), 0,
                             (struct sockaddr*)&client_addr, client_struct_length) ;
+                        gettimeofday(&rtt_t0,0);
                         printf("message envoyé n° %d !\n", num_seq);
+                        tmp_envoie[num_seq].key_num_seq = num_seq;
+                        tmp_envoie[num_seq].value_temps_envoie = rtt_t0;
+                        printf("Message n°%d envoyer à %ld.%06ld s \n", tmp_envoie[num_seq].key_num_seq, tmp_envoie[num_seq].value_temps_envoie.tv_sec,  tmp_envoie[num_seq].value_temps_envoie.tv_usec);
                         Flight_Size ++ ; 
                     }
 
                     FD_SET(Sous_socket, &rset);
-                    tv.tv_sec = 0;
-                    tv.tv_usec = 0; 
-                    nready = select(Sous_socket+1, &rset, NULL, NULL, &tv); // empeche de bloquer au receivefrom
+                    TimerNul.tv_sec = 0;
+                    TimerNul.tv_usec = 0; 
+                    nready = select(Sous_socket+1, &rset, NULL, NULL, &TimerNul); // empeche de bloquer au receivefrom
                     if (FD_ISSET(Sous_socket, &rset)) { 
                         // On a un ACK qui est arrivé 
                         memset(client_message, '\0', BUFFSIZE);
@@ -139,10 +161,17 @@ int main(int argc, char* argv[])
                             printf("Erreur lors de la reception\n");
                             return -1;
                         }
+                        gettimeofday(&rtt_t1,0);
+                        printf("rtt_t1 : %ld.%06lds \n", rtt_t1.tv_sec, rtt_t1.tv_usec);
                         printf("%s\n", client_message);
                         ACK_num_seq(client_message);
                         strcpy(buffer_last_Ack_Recu,client_message);
                         last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 ); //atoi
+
+                        rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, rtt_t1);
+                        printf("N° seq %ld, RTT : %d \n", last_Ack_Recu, rtt); 
+                        srtt = SRTT(srtt, rtt); 
+
                         Flight_Size -- ;
                         if (cwnd_taille < SlowStartSeuil)
                         {
@@ -162,11 +191,11 @@ int main(int argc, char* argv[])
                     break;
                 }
                 // On a envoyé tous les messages possibles en fonction de la taille de notre fenêtre 
-                RTT.tv_sec = 2;
-                RTT.tv_usec = 0;
-                /* RTT provisoire */
+                RetransmissionTimeout.tv_sec = min(5,max(1,(1,3*srtt))); /* checké pour trouver val optimal  */
+                RetransmissionTimeout.tv_usec = 0;
+                
                 FD_SET(Sous_socket, &rset);
-                nready = select(Sous_socket+1, &rset, NULL, NULL, &RTT);
+                nready = select(Sous_socket+1, &rset, NULL, NULL, &RetransmissionTimeout);
                 // On reste bloqué en attendant la fin du timeout afin de voir si le message pourra être ACK
                 if (FD_ISSET(Sous_socket, &rset)) { 
                     memset(client_message, '\0', BUFFSIZE);
@@ -175,10 +204,15 @@ int main(int argc, char* argv[])
                         printf("Erreur lors de la reception\n");
                         return -1;
                     }
+                    gettimeofday(&rtt_t1,0);
+                    printf("rtt_t1 : %ld.%06lds \n", rtt_t1.tv_sec, rtt_t1.tv_usec);
                     printf("%s\n", client_message);
                     ACK_num_seq(client_message);
                     strcpy(buffer_last_Ack_Recu,client_message);
                     last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 );
+                    rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, rtt_t1);
+                    printf("N° seq %ld, RTT : %d \n", last_Ack_Recu, rtt); 
+                    srtt = SRTT(srtt, rtt); 
                     Flight_Size -- ;
                     if (cwnd_taille < SlowStartSeuil)
                     {
@@ -197,11 +231,16 @@ int main(int argc, char* argv[])
                     sprintf(server_message, "%s%s", char_num_seq, lecture);
 
                     sendto(Sous_socket, server_message, BUFFSIZE, 0,
-                        (struct sockaddr*)&client_addr, client_struct_length) ;
+                        (struct sockaddr*)&client_addr, client_struct_length);
+                    gettimeofday(&rtt_t0,0);
+                    printf("message réenvoyé n° %ld !\n", last_Ack_Recu+1);
+                    tmp_envoie[last_Ack_Recu+1].key_num_seq = last_Ack_Recu+1;
+                    tmp_envoie[last_Ack_Recu+1].value_temps_envoie = rtt_t0;
+                    printf("Message n°%d envoyer à %ld.%06ld s \n", tmp_envoie[last_Ack_Recu+1].key_num_seq, tmp_envoie[last_Ack_Recu+1].value_temps_envoie.tv_sec,  tmp_envoie[last_Ack_Recu+1].value_temps_envoie.tv_usec);
                     cwnd_taille = cwnd_taille / 2; //NewReno
                     // A gérer si dès la première perte ? 
                     SlowStartSeuil = Flight_Size / 2;
-                    // num_seq += 1; // A modifier avec les ACK cumulatif 
+                    // num_seq += 1; // A modifier avec les ACK cumulatif !
                 } 
             }
             fclose(fp);
@@ -264,4 +303,18 @@ void ACK_num_seq(char *str){
         str[x] = str[x+3];
         x++;
     }
+}
+
+double differencetemps (struct timeval t0,struct timeval t1){
+    long seconds = t1.tv_sec - t0.tv_sec;
+    long microsec = t1.tv_usec -t0.tv_usec;
+    double rtt = seconds*1e3 + microsec*1e-3;
+    return rtt;
+}
+
+int SRTT (int prev_SRTT, int prev_RTT)
+{
+    int srtt = ( ALPHA * prev_SRTT ) + ((1-ALPHA) * prev_RTT);
+    printf("SRTT : %d \n", srtt);
+    return srtt;
 }
