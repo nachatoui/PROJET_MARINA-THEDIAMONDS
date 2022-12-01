@@ -172,7 +172,7 @@ int main(int argc, char* argv[])
                             printf("compteur_ACK_DUP %d \n", compteur_ACK_DUP);
                         }
                         if (compteur_ACK_DUP == 4){
-                            // FAST RETRANSMIT
+                            // FAST RETRANSMIT 
                             compteur_ACK_DUP = 0;
                             printf("paquets perdus..\n");
                             SlowStartSeuil = Flight_Size/2;
