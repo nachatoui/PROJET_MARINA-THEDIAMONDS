@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
             struct timeval TimerNul;  
             
             char buffer_last_Ack_Recu[6];
-            long last_Ack_Recu;
+            long last_Ack_Recu = 0;
 
             fd_set rset;
             FD_ZERO(&rset);
@@ -169,16 +169,19 @@ int main(int argc, char* argv[])
                         last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 ); //atoi
                         if (last_Ack_Recu == ACK_previous) {
                             compteur_ACK_DUP ++;
+                            printf("compteur_ACK_DUP %d \n", compteur_ACK_DUP);
                         }
                         if (compteur_ACK_DUP == 4){
                             // FAST RETRANSMIT
+                            compteur_ACK_DUP = 0;
+                            printf("paquets perdus..\n");
                             SlowStartSeuil = Flight_Size/2;
                             cwnd_taille = 1;
                             // Paquets perdus => Retransmission 
-                            printf("paquets perdus..\n");
-                            fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
+                            fseek(fp, (last_Ack_Recu+1)*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
                             fread(lecture, 1, BUFFSIZE-6, fp);
                             fflush(fp);
+                            Num_Sequence(last_Ack_Recu+1, char_num_seq);
                             sprintf(server_message, "%s%s", char_num_seq, lecture);
 
                             sendto(Sous_socket, server_message, BUFFSIZE, 0,
@@ -256,9 +259,10 @@ int main(int argc, char* argv[])
                 } else {
                     // Paquets perdus => Retransmission 
                     printf("paquets perdus..\n");
-                    fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
+                    fseek(fp, (last_Ack_Recu+1)*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
                     fread(lecture, 1, BUFFSIZE-6, fp);
                     fflush(fp);
+                    Num_Sequence(last_Ack_Recu+1, char_num_seq);
                     sprintf(server_message, "%s%s", char_num_seq, lecture);
 
                     sendto(Sous_socket, server_message, BUFFSIZE, 0,
