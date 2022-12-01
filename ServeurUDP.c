@@ -172,7 +172,23 @@ int main(int argc, char* argv[])
                         }
                         if (compteur_ACK_DUP == 4){
                             // FAST RETRANSMIT
-                            cwnd_taille = cwnd_taille / 2; 
+                            SlowStartSeuil = Flight_Size/2;
+                            cwnd_taille = 1;
+                            // Paquets perdus => Retransmission 
+                            printf("paquets perdus..\n");
+                            fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
+                            fread(lecture, 1, BUFFSIZE-6, fp);
+                            fflush(fp);
+                            sprintf(server_message, "%s%s", char_num_seq, lecture);
+
+                            sendto(Sous_socket, server_message, BUFFSIZE, 0,
+                                (struct sockaddr*)&client_addr, client_struct_length);
+                            gettimeofday(&rtt_t0,0);
+                            printf("message réenvoyé n° %ld !\n", last_Ack_Recu+1);
+                            tmp_envoie[last_Ack_Recu+1].key_num_seq = last_Ack_Recu+1;
+                            tmp_envoie[last_Ack_Recu+1].value_temps_envoie = rtt_t0;
+                            cwnd_taille = cwnd_taille / 2; //NewReno
+                            SlowStartSeuil = Flight_Size / 2;
                         }
                         rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, rtt_t1);
                         printf("N° seq %ld, RTT : %f \n", last_Ack_Recu, rtt); 
@@ -252,9 +268,7 @@ int main(int argc, char* argv[])
                     tmp_envoie[last_Ack_Recu+1].key_num_seq = last_Ack_Recu+1;
                     tmp_envoie[last_Ack_Recu+1].value_temps_envoie = rtt_t0;
                     cwnd_taille = cwnd_taille / 2; //NewReno
-                    // A gérer si dès la première perte ? 
                     SlowStartSeuil = Flight_Size / 2;
-                    // num_seq += 1; // A modifier avec les ACK cumulatif !
                 } 
             }
             fclose(fp);
