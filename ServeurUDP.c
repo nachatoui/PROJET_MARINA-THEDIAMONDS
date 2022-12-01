@@ -125,6 +125,9 @@ int main(int argc, char* argv[])
             struct timeval rtt_t0;
             struct timeval rtt_t1;
             temps_send tmp_envoie[300]; 
+            long ACK_previous;
+
+            int compteur_ACK_DUP = 0;
 
             while ( 1 ) { 
                 while ( (cwnd_taille - Flight_Size ) != 0){
@@ -162,8 +165,16 @@ int main(int argc, char* argv[])
                         printf("%s\n", client_message);
                         ACK_num_seq(client_message);
                         strcpy(buffer_last_Ack_Recu,client_message);
+                        ACK_previous = last_Ack_Recu;
                         last_Ack_Recu = strtol(buffer_last_Ack_Recu, NULL, 10 ); //atoi
-
+                        if (last_Ack_Recu == ACK_previous) {
+                            compteur_ACK_DUP ++;
+                        }
+                        if (compteur_ACK_DUP == 4){
+                            // FAST RETRANSMIT
+                            printf("")
+                            cwnd_taille = cwnd_taille / 2; 
+                        }
                         rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, rtt_t1);
                         printf("N° seq %ld, RTT : %f \n", last_Ack_Recu, rtt); 
                         if (last_Ack_Recu == 1){
