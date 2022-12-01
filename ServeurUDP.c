@@ -172,7 +172,6 @@ int main(int argc, char* argv[])
                         }
                         if (compteur_ACK_DUP == 4){
                             // FAST RETRANSMIT
-                            printf("")
                             cwnd_taille = cwnd_taille / 2; 
                         }
                         rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, rtt_t1);
