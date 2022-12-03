@@ -170,13 +170,13 @@ int main(int argc, char* argv[])
                         if (last_Ack_Recu == ACK_previous) {
                             compteur_ACK_DUP ++;
                             printf("compteur_ACK_DUP %d \n", compteur_ACK_DUP);
+                            cwnd_taille++;
                         }
                         if (compteur_ACK_DUP == 4){
-                            // FAST RETRANSMIT 
+                            // FAST RETRANSMIT --- FAST RECOVERY
                             compteur_ACK_DUP = 0;
                             printf("paquets perdus..\n");
                             SlowStartSeuil = Flight_Size/2;
-                            cwnd_taille = 1;
                             // Paquets perdus => Retransmission 
                             fseek(fp, (last_Ack_Recu+1)*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
                             fread(lecture, 1, BUFFSIZE-6, fp);
@@ -190,16 +190,29 @@ int main(int argc, char* argv[])
                             printf("message réenvoyé n° %ld !\n", last_Ack_Recu+1);
                             tmp_envoie[last_Ack_Recu+1].key_num_seq = last_Ack_Recu+1;
                             tmp_envoie[last_Ack_Recu+1].value_temps_envoie = rtt_t0;
-                            cwnd_taille = cwnd_taille / 2; //NewReno
+                            //cwnd_taille = cwnd_taille / 2; //NewReno
+                            //apres la retransmission on change la taille de la fenetre
+                            cwnd_taille = SlowStartSeuil + 3;
+                            // skip slow start
+                            //SlowStartSeuil = Flight_Size / 2;
+                        }
+                        //cas où le message est dupliqué plus de 3 fois
+                        if (compteur_ACK_DUP>4){
                             SlowStartSeuil = Flight_Size / 2;
+                            cwnd_taille ++;
+                            if (last_Ack_Recu != ACK_previous){
+                                compteur_ACK_DUP =0;
+                                //on sort du fast recovery: un nouveau ack non dupliqué arrive;
+                            }
                         }
                         rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, rtt_t1);
-                        printf("N° seq %ld, RTT : %f \n", last_Ack_Recu, rtt); 
+                        printf("N° seq %ld, RTT : %f \n", last_Ack_Recu, rtt);
                         if (last_Ack_Recu == 1){
                             srtt = rtt;
                             printf("SRTT : %f \n", srtt);
                         } else {
-                            srtt = SRTT(srtt, rtt); 
+                            srtt = SRTT(srtt, rtt);
+         
                         }
                         Flight_Size -- ;
                         if (cwnd_taille < SlowStartSeuil)
