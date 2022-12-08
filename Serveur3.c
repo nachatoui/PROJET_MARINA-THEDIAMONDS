@@ -98,6 +98,7 @@ int main(int argc, char* argv[])
     char buffer_last_Ack_Recu[6];
     long last_Ack_Recu = 0;
     pid_t child_pid;
+    int nread;
 
     while(1)
     {
@@ -125,10 +126,12 @@ int main(int argc, char* argv[])
                 printf("Client : @IP: %s et du port: %i\n",
                     inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-                if ((child_pid = fork()) == 0)
-                {
+                child_pid = fork();
+                if (child_pid == -1) {
+                    perror("fork");
+                    exit(-1);
+                } else if (child_pid == 0){
                     close(socket_desc);
-
                     //Fichier demandé par le client :
                     memset(client_message, '\0', BUFFSIZE); 
                     recvfrom(Sous_socket, client_message, BUFFSIZE, 0,
@@ -154,12 +157,20 @@ int main(int argc, char* argv[])
                                 memset(server_message, '\0', BUFFSIZE);
                                 memset(lecture, '\0', BUFFSIZE-6);
                                 fseek(fp, (num_seq-1)*(BUFFSIZE-6), SEEK_SET); 
-                                fread(lecture, 1, BUFFSIZE-6, fp);
+                                nread = fread(lecture, 1, BUFFSIZE-6, fp);
                                 Num_Sequence(num_seq, char_num_seq);
                                 fflush(fp);
-                                sprintf(server_message, "%s%s", char_num_seq, lecture);
+                                for (int i =0; i < (nread + 6); i++)
+                                {
+                                    if (i<6)
+                                    {
+                                        server_message[i]=char_num_seq[i];
+                                    } else {
+                                        server_message[i]=lecture[i-6];
+                                    }
+                                }
 
-                                sendto(Sous_socket, server_message, strlen(server_message), 0,
+                                sendto(Sous_socket, server_message, nread, 0,
                                     (struct sockaddr*)&client_addr, client_struct_length) ;
                                 gettimeofday(&rtt_t0,0);
                                 printf("message envoyé n° %d !\n", num_seq);
@@ -206,10 +217,18 @@ int main(int argc, char* argv[])
                                         // Paquet perdu => Retransmission 
                                         memset(lecture, '\0', BUFFSIZE-6);
                                         fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
-                                        fread(lecture, 1, BUFFSIZE-6, fp);
+                                        nread = fread(lecture, 1, BUFFSIZE-6, fp);
                                         fflush(fp);
                                         Num_Sequence(last_Ack_Recu+1, char_num_seq);
-                                        sprintf(server_message, "%s%s", char_num_seq, lecture);
+                                        for (int i =0; i < (nread + 6); i++)
+                                        {
+                                            if (i<6)
+                                            {
+                                                server_message[i]=char_num_seq[i];
+                                            } else {
+                                                server_message[i]=lecture[i-6];
+                                            }
+                                        }
                                         sendto(Sous_socket, server_message, BUFFSIZE, 0,
                                             (struct sockaddr*)&client_addr, client_struct_length);
                                         gettimeofday(&rtt_t0,0);
@@ -252,7 +271,7 @@ int main(int argc, char* argv[])
                         // On reste bloqué en attendant la fin du timeout afin de voir si le message pourra être ACK
                         if (FD_ISSET(Sous_socket, &rset)) { 
                             // ACK arrive avant le fin du timeout
-                            printf("ACK avant la fin du timeout = %ld.%06lds \n", RetransmissionTimeout.tv_sec, RetransmissionTimeout.tv_usec);
+                            printf("ACK avant la fin du timeout \n");
                             memset(client_message, '\0', BUFFSIZE);
                             if (recvfrom(Sous_socket, client_message, BUFFSIZE, 0,
                                 (struct sockaddr*)&client_addr, &client_struct_length) < 0){
@@ -283,10 +302,18 @@ int main(int argc, char* argv[])
                                     // Paquet perdu => Retransmission 
                                     memset(lecture, '\0', BUFFSIZE-6);
                                     fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
-                                    fread(lecture, 1, BUFFSIZE-6, fp);
+                                    nread = fread(lecture, 1, BUFFSIZE-6, fp);
                                     fflush(fp);
                                     Num_Sequence(last_Ack_Recu+1, char_num_seq);
-                                    sprintf(server_message, "%s%s", char_num_seq, lecture);
+                                    for (int i =0; i < (nread + 6); i++)
+                                    {
+                                        if (i<6)
+                                        {
+                                            server_message[i]=char_num_seq[i];
+                                        } else {
+                                            server_message[i]=lecture[i-6];
+                                        }
+                                    }
                                     sendto(Sous_socket, server_message, BUFFSIZE, 0,
                                         (struct sockaddr*)&client_addr, client_struct_length);
                                     gettimeofday(&rtt_t0,0);
@@ -319,13 +346,12 @@ int main(int argc, char* argv[])
 
                         } else {
                             // Paquets perdus après un timeout => Retransmission 
-                            printf("Fin du timeout, paquet perdu \n");
+                            printf("Fin du timeout = %ld.%06lds, paquet perdu timeout \n", RetransmissionTimeout.tv_sec, RetransmissionTimeout.tv_usec);
                             memset(lecture, '\0', BUFFSIZE-6);
                             fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
-                            fread(lecture, 1, BUFFSIZE-6, fp);
+                            nread = fread(lecture, 1, BUFFSIZE-6, fp);
                             fflush(fp);
                             Num_Sequence(last_Ack_Recu+1, char_num_seq);
-                            sprintf(server_message, "%s%s", char_num_seq, lecture);
 
                             sendto(Sous_socket, server_message, BUFFSIZE, 0,
                                 (struct sockaddr*)&client_addr, client_struct_length);
@@ -347,14 +373,19 @@ int main(int argc, char* argv[])
                     temps_ms = temps*1000;
                     debit = ((21043*8)/pow(10,8))/temps;
                     printf("start %ld, end %ld, temps %fs, debit %f Mbps \n", start, end, temps, debit);
+                    exit(-1);
                 } else {
                     close(Sous_socket);
-                } 
+                }
             } else {
                 printf("erreur Threeway handshake\n");
             }
+            printf("fin ACK\n");
         }
+        printf("fin SYN\n");
     }
+    printf("hors de la boucle\n");
+    close(socket_desc);
     return 0;
 }
 

@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
             printf("Nom du fichier demandé : %s \n", client_message);
 
             // Envoie d'un fichier:
-            FILE *fp = fopen(client_message,"r");
+            FILE *fp = fopen(client_message,"rb");
             if(fp == NULL) {
                 perror ("Error in opening file");
                 exit(-1);
@@ -136,6 +136,7 @@ int main(int argc, char* argv[])
             long num_dernier_mess_reenvoye;
             int fin_envoie = 0;
             int last_num_envoie = 60000;
+            int nread;
 
             start = clock();
             while ( last_Ack_Recu != last_num_envoie ) {                  
@@ -145,12 +146,21 @@ int main(int argc, char* argv[])
                         memset(server_message, '\0', BUFFSIZE);
                         memset(lecture, '\0', BUFFSIZE-6);
                         fseek(fp, (num_seq-1)*(BUFFSIZE-6), SEEK_SET); 
-                        fread(lecture, 1, BUFFSIZE-6, fp);
+                        nread = fread(lecture, 1, BUFFSIZE-6, fp);
                         Num_Sequence(num_seq, char_num_seq);
                         fflush(fp);
-                        sprintf(server_message, "%s%s", char_num_seq, lecture);
+                        for (int i =0; i < (nread + 6); i++)
+                        {
+                            if (i<6)
+                            {
+                                server_message[i]=char_num_seq[i];
+                            } else {
+                                server_message[i]=lecture[i-6];
+                            }
+                        }
+                        // sprintf(server_message, "%s%s", char_num_seq, lecture);
 
-                        sendto(Sous_socket, server_message, strlen(server_message), 0,
+                        sendto(Sous_socket, server_message, nread+6, 0,
                             (struct sockaddr*)&client_addr, client_struct_length) ;
                         gettimeofday(&rtt_t0,0);
                         printf("message envoyé n° %d !\n", num_seq);
@@ -197,10 +207,18 @@ int main(int argc, char* argv[])
                                 // Paquet perdu => Retransmission 
                                 memset(lecture, '\0', BUFFSIZE-6);
                                 fseek(fp, last_Ack_Recu*(BUFFSIZE-6), SEEK_SET); // regarde à partir du début du fichier (à modif par la suite pour plus de perf)
-                                fread(lecture, 1, BUFFSIZE-6, fp);
+                                nread = fread(lecture, 1, BUFFSIZE-6, fp);
                                 fflush(fp);
                                 Num_Sequence(last_Ack_Recu+1, char_num_seq);
-                                sprintf(server_message, "%s%s", char_num_seq, lecture);
+                                for (int i =0; i < (nread + 6); i++)
+                                {
+                                    if (i<6)
+                                    {
+                                        server_message[i]=char_num_seq[i];
+                                    } else {
+                                        server_message[i]=lecture[i-6];
+                                    }
+                                }
                                 sendto(Sous_socket, server_message, BUFFSIZE, 0,
                                     (struct sockaddr*)&client_addr, client_struct_length);
                                 gettimeofday(&rtt_t0,0);
@@ -277,7 +295,15 @@ int main(int argc, char* argv[])
                             fread(lecture, 1, BUFFSIZE-6, fp);
                             fflush(fp);
                             Num_Sequence(last_Ack_Recu+1, char_num_seq);
-                            sprintf(server_message, "%s%s", char_num_seq, lecture);
+                            for (int i =0; i < (nread + 6); i++)
+                            {
+                                if (i<6)
+                                {
+                                    server_message[i]=char_num_seq[i];
+                                } else {
+                                    server_message[i]=lecture[i-6];
+                                }
+                            }
                             sendto(Sous_socket, server_message, BUFFSIZE, 0,
                                 (struct sockaddr*)&client_addr, client_struct_length);
                             gettimeofday(&rtt_t0,0);
@@ -316,7 +342,6 @@ int main(int argc, char* argv[])
                     fread(lecture, 1, BUFFSIZE-6, fp);
                     fflush(fp);
                     Num_Sequence(last_Ack_Recu+1, char_num_seq);
-                    sprintf(server_message, "%s%s", char_num_seq, lecture);
 
                     sendto(Sous_socket, server_message, BUFFSIZE, 0,
                         (struct sockaddr*)&client_addr, client_struct_length);
