@@ -352,7 +352,15 @@ int main(int argc, char* argv[])
                             nread = fread(lecture, 1, BUFFSIZE-6, fp);
                             fflush(fp);
                             Num_Sequence(last_Ack_Recu+1, char_num_seq);
-
+                            for (int i =0; i < (nread + 6); i++)
+                            {
+                                if (i<6)
+                                {
+                                    server_message[i]=char_num_seq[i];
+                                } else {
+                                    server_message[i]=lecture[i-6];
+                                }
+                            }
                             sendto(Sous_socket, server_message, BUFFSIZE, 0,
                                 (struct sockaddr*)&client_addr, client_struct_length);
                             gettimeofday(&rtt_t0,0);
