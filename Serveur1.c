@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
     struct sockaddr_in server_addr, client_addr, ss_addr;
     char server_message[BUFFSIZE], client_message[BUFFSIZE];
     int client_struct_length = sizeof(client_addr);
-    int cwnd_taille = 7; // A modifier lors optimisation - fonction du débit espéré
+    int cwnd_taille = 5; // A modifier lors optimisation - fonction du débit espéré
     
     double temps_exec;
     struct timeval start, end;
@@ -135,12 +135,12 @@ int main(int argc, char* argv[])
             double srtt; 
             struct timeval rtt_t0;
             struct timeval rtt_t1;
-            temps_send tmp_envoie[300]; 
+            temps_send tmp_envoie[300000]; 
             long ACK_previous;
             int compteur_ACK_DUP = 0;
             long num_dernier_mess_reenvoye;
             int fin_envoie = 0;
-            int last_num_envoie = 60000;
+            int last_num_envoie = 300000;
             int nread;
 
             gettimeofday(&start,0); 

@@ -135,12 +135,12 @@ int main(int argc, char* argv[])
             double srtt; 
             struct timeval rtt_t0;
             struct timeval rtt_t1;
-            temps_send tmp_envoie[300]; 
+            temps_send tmp_envoie[300000]; 
             long ACK_previous;
             int compteur_ACK_DUP = 0;
             long num_dernier_mess_reenvoye;
             int fin_envoie = 0;
-            int last_num_envoie = 60000;
+            int last_num_envoie = 300000;
             int nread;
             int compteur_mess_reenvoye = 0;
 
