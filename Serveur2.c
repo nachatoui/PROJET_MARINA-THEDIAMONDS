@@ -16,7 +16,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define BUFFSIZE 536 // MSS 536 RFC 879
+#define BUFFSIZE 1500 // 536 // MSS 536 RFC 879
 #define SYN "SYN"
 #define ACK "ACK"
 #define SYN_ACK "SYN-ACK"

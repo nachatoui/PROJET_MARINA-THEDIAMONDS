@@ -132,12 +132,10 @@ int main(int argc, char* argv[])
                     inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
                 child_pid = fork();
-                printf("child_pid %d\n", child_pid);
                 if (child_pid == -1) {
                     perror("fork");
                     exit(-1);
                 } else if (child_pid == 0){
-                    printf("dans le process child \n");
                     close(socket_desc);
                     //Fichier demandé par le client :
                     memset(client_message, '\0', BUFFSIZE); 
@@ -161,7 +159,7 @@ int main(int argc, char* argv[])
                 
                     gettimeofday(&start,0); 
                     while ( last_Ack_Recu != last_num_envoie ) {                  
-                        while ( ( (cwnd_taille - Flight_Size) != 0) && (fin_envoie !=1) ){ 
+                        while ( ( (cwnd_taille - Flight_Size) > 0) && (fin_envoie !=1) ){ 
                             if (! feof(fp)) {
                                 num_seq += 1;
                                 envoie_message(fp, num_seq, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoie);

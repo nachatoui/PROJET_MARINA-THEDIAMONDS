@@ -16,20 +16,21 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define BUFFSIZE 1500 // ou MSS 536 RFC 879
+#define BUFFSIZE 1500 //536 // MSS 536 RFC 879
 #define SYN "SYN"
 #define ACK "ACK"
 #define SYN_ACK "SYN-ACK"
 #define FIN "FIN"
-#define ALPHA 0.4 //  -- si réseau stable, petite valeur de α = 0.4 sinon grande valeur α = 0.9 par exemple
+#define ALPHA 0.4 // A modifier lors optimisation -- si réseau stable, petite valeur de α = 0.4 sinon grande valeur α = 0.9 par exemple
 
 #define max(x, y) (((x) > (y)) ? (x) : (y))
 #define min(x, y) (((x) < (y)) ? (x) : (y))
+int cwnd_taille =40;
 
-// creation d'un dictionnaire -- Il va stocker le temps d'envoi pour chaque segement afin de calculer le rtt
+// creation d'un dictionnaire -- regarde pour chaque segement à quel temps il a été envoyé afin de calculer le rtt
 typedef struct {
     int key_num_seq;
-    struct timeval value_temps_envoi; 
+    struct timeval value_temps_envoie; 
 } temps_send ;
 
 int check(int exp, const char *msg);
@@ -39,9 +40,9 @@ void ACK_num_seq(char *str);
 double differencetemps (struct timeval t0,struct timeval t1);
 double SRTT (double prev_SRTT, double prev_RTT);
 void remplissage_server_message (char server_message[], char lecture[], char char_num_seq[], int nread);
-void envoie_message(FILE *fp, int num_seq, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoi[]);
-long reception_message(char client_message[], int Sous_socket, struct sockaddr_in client_addr, int client_struct_length, struct timeval *rtt_t1, char buffer_last_Ack_Recu[], temps_send tmp_envoi[], long ACK_prededent, int *compteur_ACK_DUP, double *rtt, double *srtt);
-long FastRetransmit (FILE *fp, int *compteur_ACK_DUP, int *SlowStartSeuil, int *cwnd_taille, long last_Ack_Recu, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoi[], int Flight_Size);
+void envoie_message(FILE *fp, int num_seq, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoie[]);
+long reception_message(char client_message[], int Sous_socket, struct sockaddr_in client_addr, int client_struct_length, struct timeval *rtt_t1, char buffer_last_Ack_Recu[], temps_send tmp_envoie[], long ACK_prededent, int *compteur_ACK_DUP, double *rtt, double *srtt);
+long FastRetransmit (FILE *fp, int *compteur_ACK_DUP, int *SlowStartSeuil, long last_Ack_Recu, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoie[], int Flight_Size);
 
 int main(int argc, char* argv[])
 {
@@ -53,21 +54,21 @@ int main(int argc, char* argv[])
 
     int PORT = atoi(argv[1]);
 
-    // Creation socket UDP :
     int socket_desc, Sous_socket;
     struct sockaddr_in server_addr, client_addr, ss_addr;
     int client_struct_length = sizeof(client_addr);
-    socket_desc = Creation_Socket (PORT, server_addr);
 
     char server_message[BUFFSIZE], client_message[BUFFSIZE];
     // Vide les buffers:
     memset(server_message, '\0', BUFFSIZE);
     memset(client_message, '\0', BUFFSIZE);
     
-    //monitoring
     double temps_exec;
     struct timeval start, end;
     float debit;
+
+    // Creation socket UDP :
+    socket_desc = Creation_Socket (PORT, server_addr);
 
     // Three-way handshake avec un client:
     int nvx_port = PORT + 1;
@@ -103,73 +104,84 @@ int main(int argc, char* argv[])
             recvfrom(Sous_socket, client_message, BUFFSIZE, 0,
                             (struct sockaddr*)&client_addr, &client_struct_length);
             printf("Nom du fichier demandé : %s \n", client_message);
+
+            // Envoie d'un fichier:
             FILE *fp = fopen(client_message,"rb");
             if(fp == NULL) {
                 perror ("Error in opening file");
                 exit(-1);
             }
-
-            // On recupère la taille & le nombre de segment a envoyer:
             fseek (fp, 0, SEEK_END);
             long taille_fichier = ftell(fp);
             fseek (fp, 0, SEEK_SET);    
-            int last_num_seq_fichier = 100000; 
+            int last_num_seq_fichier; 
+            if (taille_fichier % (BUFFSIZE-6) == 0)
+            {
+                last_num_seq_fichier = taille_fichier / (BUFFSIZE-6);
+            }
+            else
+            {
+                last_num_seq_fichier = (taille_fichier / (BUFFSIZE-6)) + 1;
+            }
 
-            // creation de toutes les variables nécessaires
-            int cwnd_taille = 5; 
-            char char_num_seq[6];  //stocke le num de sequence sur 6 bits
-            char lecture[BUFFSIZE-6]; // stocke la partie du ficher que l'on souhaite envoyer sur 1494 bit
+            // int cwnd_taille = 10; // A modifier lors optimisation - fonction du débit espéré
+            char char_num_seq[6]; 
+            char lecture[BUFFSIZE-6];
             
             struct timeval RetransmissionTimeout, TimerNul;  
-    
-            char buffer_last_Ack_Recu[6]; // stocke la valeur du dernier ACK reçu
-            long last_Ack_Recu = 0;     // pareil mais en long
+            
+            char buffer_last_Ack_Recu[6];
+            long last_Ack_Recu = 0;
 
             fd_set rset;
             FD_ZERO(&rset);
-            int nready;     // si notre select est ready 
-            int fin_envoie=0;
+            int nready;
 
             int num_seq = 0;
             int Flight_Size = 0;
-            int SlowStartSeuil = 1024; 
+            int SlowStartSeuil = 1024; // A modifier lors optimisation 
             double rtt; 
             double srtt; 
-            struct timeval rtt_t0, rtt_t1; // rtt_t0: temps envoie du seg - rtt_t1: temps recpetion du seg 
-            temps_send tmp_envoi[300000]; //stocker les temps d'envoie en fonction du n° de segemt
-            long ACK_prededent; // stocke la valeur du ACK precedent pour savoir s'il est duplique
+            struct timeval rtt_t0, rtt_t1;
+            temps_send tmp_envoie[300000]; 
+            long ACK_prededent;
             int compteur_ACK_DUP = 0;
-            long num_dernier_seg_reenvoye;
-            int nread; // cette fois c'est pour recuperer la taille du segment à envoyer (le dernier + petit)
+            long num_dernier_mess_reenvoye;
+            int nread;
 
             gettimeofday(&start,0); 
-            // On commence l'envoie
             while ( last_Ack_Recu != last_num_seq_fichier ) {                  
-                while ( ( (cwnd_taille - Flight_Size) > 0 ) && (fin_envoie != 1)){ 
-                    // J'envoie sans attendre de ACK 
-                    if (! feof(fp)) {
-                        num_seq += 1;
-                        envoie_message(fp, num_seq, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoi);
-                        Flight_Size += 1 ; 
-                        printf("message envoyé n° %d !\n", num_seq);
-                    } else {
-                        last_num_seq_fichier = num_seq;
-                        fin_envoie = 1;
+                if (last_Ack_Recu == num_seq) 
+                {
+                    if ( ! feof(fp) )
+                    { 
+                        for (int i=0; i<cwnd_taille; i++) 
+                        {
+                            num_seq += 1;
+                            envoie_message(fp, num_seq, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoie);
+                            Flight_Size += 1 ; 
+                            printf("message envoyé n° %d !\n", num_seq);
+                        } 
                     }
-                    FD_SET(Sous_socket, &rset);
+                }
+                    /* FD_SET(Sous_socket, &rset);
                     TimerNul.tv_sec = 0;
                     TimerNul.tv_usec = 0; 
-                    // je regarde si un ACK est arrivé 
                     nready = select(Sous_socket+1, &rset, NULL, NULL, &TimerNul); // empeche de bloquer au receivefrom
                     if (FD_ISSET(Sous_socket, &rset)) { 
                         ACK_prededent = last_Ack_Recu;
-                        last_Ack_Recu = reception_message(client_message, Sous_socket, client_addr, client_struct_length, &rtt_t1, buffer_last_Ack_Recu, tmp_envoi, ACK_prededent, &compteur_ACK_DUP , &rtt, &srtt);
-                        Flight_Size -= 1 ;
+                        printf("3 cwnd_taille %d\n", cwnd_taille);
+                        last_Ack_Recu = reception_message(client_message, Sous_socket, client_addr, client_struct_length, &rtt_t1, buffer_last_Ack_Recu, tmp_envoie, ACK_prededent, &compteur_ACK_DUP , &rtt, &srtt);
+                        last_Ack_Recu = max(last_Ack_Recu, ACK_prededent);
+                        printf("4 cwnd_taille %d\n", cwnd_taille);
+                        Flight_Size -= 1 ;cwnd_taille
                         if (compteur_ACK_DUP == 3) { 
-                            if (last_Ack_Recu != (num_dernier_seg_reenvoye-1)) //suppose un même pkt pas perdu 2 fois ? - evite trop de renvoie
+                            if (last_Ack_Recu != (num_dernier_mess_reenvoye-1)) //suppose un même pkt pas perdu 2 fois ? 
                             {
-                                num_dernier_seg_reenvoye = FastRetransmit (fp, &compteur_ACK_DUP, &SlowStartSeuil, &cwnd_taille, last_Ack_Recu, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoi, Flight_Size);
+                                printf("5 cwnd_taille %d\n", cwnd_taille);
+                                num_dernier_mess_reenvoye = FastRetransmit (fp, &compteur_ACK_DUP, &SlowStartSeuil, last_Ack_Recu, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoie, Flight_Size);
                                 fseek(fp, num_seq*(BUFFSIZE-6), SEEK_SET);
+                                printf("6 cwnd_taille %d\n", cwnd_taille);
                             } else {
                                 compteur_ACK_DUP = 0;
                                 if (cwnd_taille < SlowStartSeuil)
@@ -185,37 +197,38 @@ int main(int argc, char* argv[])
                             if (cwnd_taille < SlowStartSeuil)
                             {
                                 //slow start
-                                cwnd_taille += 1;
+                                cwnd_taille = cwnd_taille + 1;
+                                printf("cAAAA wnd_taille %d\n", cwnd_taille);
                             }  else {
                                 //congestion avoidance
                                 cwnd_taille = cwnd_taille + 1/max(1,cwnd_taille);
                             }
                         }
-                    } 
-                }
-                // On a envoyé tous les messages possibles en fonction de la taille de notre fenêtre => Att un ACK 
-
-                RetransmissionTimeout.tv_sec = min(1,(int)(1.3*srtt)); /* checké pour trouver val optimal  */
-                RetransmissionTimeout.tv_usec = (1.3*srtt - (int)(1.3*srtt))*1000000;
-                if (srtt == 0){
-                    RetransmissionTimeout.tv_sec = 1; /*initialisation  */
+                    } */
+                
+                // On a envoyé tous les messages possibles en fonction de la taille de notre fenêtre 
+                RetransmissionTimeout.tv_sec = 0; // min(2,(int)(1.3*srtt)); /* checké pour trouver val optimal  */
+                RetransmissionTimeout.tv_usec = 100;//(1.3*srtt - (int)(1.3*srtt))*1000000;
+                /*if (srtt == 0){
+                    RetransmissionTimeout.tv_sec = 1; /*initialisation  
                     RetransmissionTimeout.tv_usec = 0;
                 }
-                printf("rtt = %f, srtt = %f, le RetransmissionTimeout = %ld.%06lds \n", rtt, srtt, RetransmissionTimeout.tv_sec, RetransmissionTimeout.tv_usec);
+                printf("rtt = %f, srtt = %f, RetransmissionTimeout = %ld.%06lds \n", rtt, srtt, RetransmissionTimeout.tv_sec, RetransmissionTimeout.tv_usec);*/
 
                 FD_SET(Sous_socket, &rset);
                 nready = select(Sous_socket+1, &rset, NULL, NULL, &RetransmissionTimeout);
                 // On reste bloqué en attendant la fin du timeout afin de voir si le message pourra être ACK
                 if (FD_ISSET(Sous_socket, &rset)) { 
+                    // ACK arrive avant le fin du timeout
                     printf("ACK avant la fin du timeout \n");
                     ACK_prededent = last_Ack_Recu; //On stocke la valeur du dernier Ack reçu
-                    last_Ack_Recu = reception_message(client_message, Sous_socket, client_addr, client_struct_length, &rtt_t1, buffer_last_Ack_Recu, tmp_envoi, ACK_prededent, &compteur_ACK_DUP, &rtt, &srtt);
+                    last_Ack_Recu = reception_message(client_message, Sous_socket, client_addr, client_struct_length, &rtt_t1, buffer_last_Ack_Recu, tmp_envoie, ACK_prededent, &compteur_ACK_DUP, &rtt, &srtt);
                     Flight_Size -= 1 ;
 
                     if (compteur_ACK_DUP == 3 ) { 
-                        if (last_Ack_Recu != (num_dernier_seg_reenvoye-1)) //suppose un même pkt pas perdu 2 fois ? 
+                        if (last_Ack_Recu != (num_dernier_mess_reenvoye-1)) //suppose un même pkt pas perdu 2 fois ? 
                         {
-                            num_dernier_seg_reenvoye = FastRetransmit (fp, &compteur_ACK_DUP, &SlowStartSeuil, &cwnd_taille, last_Ack_Recu, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoi, Flight_Size);
+                            num_dernier_mess_reenvoye = FastRetransmit (fp, &compteur_ACK_DUP, &SlowStartSeuil, last_Ack_Recu, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoie, Flight_Size);
                             fseek(fp, num_seq*(BUFFSIZE-6), SEEK_SET);
                         } else {
                             compteur_ACK_DUP = 0;
@@ -242,7 +255,7 @@ int main(int argc, char* argv[])
                 } else {
                     // Paquets perdus après un timeout => Retransmission 
                     printf("Fin du timeout= %ld.%06lds, paquet perdu \n", RetransmissionTimeout.tv_sec, RetransmissionTimeout.tv_usec);
-                    envoie_message(fp, last_Ack_Recu+1, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoi);
+                    envoie_message(fp, last_Ack_Recu+1, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoie);
                     printf("message réenvoyé n° %ld !\n", last_Ack_Recu+1);
                     SlowStartSeuil = Flight_Size / 2;
                     cwnd_taille = 1;
@@ -286,7 +299,7 @@ void remplissage_server_message (char server_message[], char lecture[], char cha
     }
 }
 
-void envoie_message(FILE *fp, int num_seq, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoi[]) {
+void envoie_message(FILE *fp, int num_seq, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoie[]) {
     memset(server_message, '\0', BUFFSIZE);
     memset(lecture, '\0', BUFFSIZE-6);
     fseek(fp, (num_seq-1)*(BUFFSIZE-6), SEEK_SET);
@@ -298,11 +311,11 @@ void envoie_message(FILE *fp, int num_seq, char server_message[], char lecture[]
     sendto(Sous_socket, server_message, nread+6, 0,
         (struct sockaddr*)&client_addr, sizeof(client_addr));
     gettimeofday(&rtt_t0,0);
-    tmp_envoi[num_seq].key_num_seq = num_seq;
-    tmp_envoi[num_seq].value_temps_envoi = rtt_t0;    
+    tmp_envoie[num_seq].key_num_seq = num_seq;
+    tmp_envoie[num_seq].value_temps_envoie = rtt_t0;    
 }
 
-long reception_message(char client_message[], int Sous_socket, struct sockaddr_in client_addr, int client_struct_length, struct timeval *rtt_t1, char buffer_last_Ack_Recu[], temps_send tmp_envoi[], long ACK_prededent, int *compteur_ACK_DUP, double *rtt, double *srtt) {
+long reception_message(char client_message[], int Sous_socket, struct sockaddr_in client_addr, int client_struct_length, struct timeval *rtt_t1, char buffer_last_Ack_Recu[], temps_send tmp_envoie[], long ACK_prededent, int *compteur_ACK_DUP, double *rtt, double *srtt) {
     memset(client_message, '\0', BUFFSIZE);
     if (recvfrom(Sous_socket, client_message, BUFFSIZE, 0,
         (struct sockaddr*)&client_addr, &client_struct_length) < 0){
@@ -319,22 +332,22 @@ long reception_message(char client_message[], int Sous_socket, struct sockaddr_i
         *compteur_ACK_DUP += 1;
         printf("compteur_ACK_DUP %d \n", *compteur_ACK_DUP);
     } else {
-        *rtt = differencetemps(tmp_envoi[last_Ack_Recu].value_temps_envoi, *rtt_t1);
+        *rtt = differencetemps(tmp_envoie[last_Ack_Recu].value_temps_envoie, *rtt_t1);
         *srtt = SRTT(*srtt, *rtt); 
     }
     return last_Ack_Recu;
 }
 
-long FastRetransmit (FILE *fp, int *compteur_ACK_DUP, int *SlowStartSeuil, int *cwnd_taille, long last_Ack_Recu, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoi[], int Flight_Size) {
+long FastRetransmit (FILE *fp, int *compteur_ACK_DUP, int *SlowStartSeuil, long last_Ack_Recu, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr, struct timeval rtt_t0, temps_send tmp_envoie[], int Flight_Size) {
     *compteur_ACK_DUP = 0;
     printf("3 ACK DUPLIQUE..\n");
     *SlowStartSeuil = Flight_Size/2;
     // Paquet perdu => Retransmission 
-    envoie_message(fp, last_Ack_Recu+1, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoi);
+    envoie_message(fp, last_Ack_Recu+1, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoie);
     printf("message réenvoyé n° %ld !\n", last_Ack_Recu+1);
-    *cwnd_taille = *SlowStartSeuil + 3; // 3 = nombre ACK dupliqué reçu
-    long num_dernier_seg_reenvoye = last_Ack_Recu+1;
-    return num_dernier_seg_reenvoye;
+    cwnd_taille = *SlowStartSeuil + 3; // 3 = nombre ACK dupliqué reçu
+    long num_dernier_mess_reenvoye = last_Ack_Recu+1;
+    return num_dernier_mess_reenvoye;
 }
 
 char* Num_Sequence(int num_seq, char* char_num_seq){
