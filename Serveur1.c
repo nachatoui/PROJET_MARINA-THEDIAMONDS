@@ -113,18 +113,10 @@ int main(int argc, char* argv[])
             fseek (fp, 0, SEEK_END);
             long taille_fichier = ftell(fp);
             fseek (fp, 0, SEEK_SET);    
-            int last_num_seq_fichier; 
-            if (taille_fichier % (BUFFSIZE-6) == 0)
-            {
-                last_num_seq_fichier = taille_fichier / (BUFFSIZE-6);
-            }
-            else
-            {
-                last_num_seq_fichier = (taille_fichier / (BUFFSIZE-6)) + 1;
-            }
+            int last_num_seq_fichier = 100000; 
 
             // creation de toutes les variables nécessaires
-            int cwnd_taille = 50; 
+            int cwnd_taille = 5; 
             char char_num_seq[6];  //stocke le num de sequence sur 6 bits
             char lecture[BUFFSIZE-6]; // stocke la partie du ficher que l'on souhaite envoyer sur 1494 bit
             
@@ -136,6 +128,7 @@ int main(int argc, char* argv[])
             fd_set rset;
             FD_ZERO(&rset);
             int nready;     // si notre select est ready 
+            int fin_envoie=0;
 
             int num_seq = 0;
             int Flight_Size = 0;
@@ -152,14 +145,17 @@ int main(int argc, char* argv[])
             gettimeofday(&start,0); 
             // On commence l'envoie
             while ( last_Ack_Recu != last_num_seq_fichier ) {                  
-                while ( ( (cwnd_taille - Flight_Size) > 0 ) && (num_seq != last_num_seq_fichier) ){ 
+                while ( ( (cwnd_taille - Flight_Size) > 0 ) && (fin_envoie != 1)){ 
                     // J'envoie sans attendre de ACK 
                     if (! feof(fp)) {
                         num_seq += 1;
                         envoie_message(fp, num_seq, server_message, lecture, char_num_seq, Sous_socket, client_addr, rtt_t0, tmp_envoi);
                         Flight_Size += 1 ; 
                         printf("message envoyé n° %d !\n", num_seq);
-                    } 
+                    } else {
+                        last_num_seq_fichier = num_seq;
+                        fin_envoie = 1;
+                    }
                     FD_SET(Sous_socket, &rset);
                     TimerNul.tv_sec = 0;
                     TimerNul.tv_usec = 0; 
