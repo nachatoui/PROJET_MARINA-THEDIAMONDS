@@ -21,25 +21,19 @@
 #define ACK "ACK"
 #define SYN_ACK "SYN-ACK"
 #define FIN "FIN"
-#define ALPHA 0.4 // A modifier lors optimisation -- si réseau stable, petite valeur de α = 0.4 sinon grande valeur α = 0.9 par exemple
+
 
 #define max(x, y) (((x) > (y)) ? (x) : (y))
-#define min(x, y) (((x) < (y)) ? (x) : (y))
+
 
 int cwnd_taille =40;
 
-// creation d'un dictionnaire -- regarde pour chaque segement à quel temps il a été envoyé afin de calculer le rtt
-typedef struct {
-    int key_num_seq;
-    struct timeval value_temps_envoie; 
-} temps_send ;
 
 int check(int exp, const char *msg);
 char* Num_Sequence(int num_seq, char* char_num_seq);
 int Creation_Socket (int port, struct sockaddr_in server_addr);
 void ACK_num_seq(char *str);
 double differencetemps (struct timeval t0,struct timeval t1);
-double SRTT (double prev_SRTT, double prev_RTT);
 void remplissage_server_message (char server_message[], char lecture[], char char_num_seq[], int nread);
 void envoie_message(FILE *fp, int num_seq, char server_message[], char lecture[], char char_num_seq[], int Sous_socket, struct sockaddr_in client_addr);
 long reception_message(char client_message[], int Sous_socket, struct sockaddr_in client_addr, int client_struct_length, char buffer_last_Ack_Recu[], long ACK_prededent, int *compteur_ACK_DUP);
@@ -370,11 +364,4 @@ double differencetemps (struct timeval t0,struct timeval t1){
     long microsec = t1.tv_usec - t0.tv_usec;
     double rtt = seconds + microsec*1e-6;
     return rtt;
-}
-
-double SRTT (double prev_SRTT, double prev_RTT)
-{
-    double srtt = ALPHA*prev_SRTT + (1-ALPHA)*prev_RTT;
-    // printf("SRTT : %f \n", srtt);
-    return srtt;
 }
